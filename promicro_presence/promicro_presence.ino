@@ -39,5 +39,5 @@ void loop() {
     Serial.println(distance, 1);
   }
 
-  delay(1000);  // 1秒待機
+  delay(100);
 }
