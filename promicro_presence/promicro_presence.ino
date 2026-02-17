@@ -17,6 +17,8 @@ void setup() {
   DDRB &= ~(1 << 0);  // RX LED (PB0) Input
   PORTB &= ~(1 << 0); // RX LED (PB0) No Pull-up (Hi-Z) - 消灯
 }
+  
+float distance_old = 0;
 
 void loop() {
   // Trigパルスを送信 (10μ秒以上)
@@ -32,12 +34,14 @@ void loop() {
   // 距離を計算 (cm) = 時間(μ秒) × 0.034 / 2
   float distance = duration * 0.034 / 2;
 
-  // 範囲外ならエラー値として -1 を送信
-  if (distance == 0 || distance > 400) {
-    Serial.println(-1);
+  if(distance > 1000) {
+    distance = distance_old;
   } else {
-    Serial.println(distance, 1);
+    distance_old = distance;
   }
 
-  delay(100);
+  // 距離を送信（生の値をそのまま出力）
+  Serial.println(distance, 1);
+
+  delay(10);
 }
