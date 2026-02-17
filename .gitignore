@@ -1,0 +1,11 @@
+# Arduino build files
+*.a
+*.elf
+*.hex
+*.o
+
+# macOS
+.DS_Store
+
+# 設定ファイル（個人設定を含むため）
+config.sh

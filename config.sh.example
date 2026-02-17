@@ -1,0 +1,12 @@
+#!/bin/bash
+# Pro Micro + HC-SR04 共通設定ファイル
+
+# デバイス設定（例: /dev/cu.usbmodem124301）
+DEVICE="/dev/cu.usbmodemXXXXXX"
+
+# 在室判定の閾値（cm）: この距離以下なら「在室」とみなす
+THRESHOLD_CM=40
+
+# 通知設定
+NOTIFY_URL="ntfy.sh/your-topic"
+NOTIFY_MESSAGE="Claude Code応答"
