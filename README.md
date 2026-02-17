@@ -79,8 +79,46 @@ vim config.sh  # DEVICEなどを編集
 
 1. Claude CodeがHookを発火
 2. `notify_if_absent.sh` がHC-SR04で距離を計測
-3. 在室（閾値以下）→ 音だけ鳴らして通知しない
-4. 不在（閾値超え）→ ntfy.sh経由でスマートウォッチに通知
+3. 在室（閾値以下）→ 音のみ鳴らす（通知は送らない）
+4. 不在（閾値超え）→ 音を鳴らして、ntfy.sh経由でスマホに通知送信
+
+## ntfy.sh の設定
+
+**ntfy.sh** は無料のプッシュ通知サービスです。登録なしで誰でも使用できます。
+
+### トピックの作成
+
+特別な登録は不要。`config.sh` でトピック名を指定するだけです：
+
+```bash
+# config.sh
+NOTIFY_URL="ntfy.sh/your-unique-topic-name"
+```
+
+**セキュリティ推奨**: 他人が推測しにくいランダムなトピック名を使用してください：
+
+```bash
+NOTIFY_URL="ntfy.sh/$(uuidgen | tr -d '-')"
+```
+
+### スマホで通知を受け取る
+
+1. **アプリをインストール**:
+   - iOS: [ntfy - Push Notifications](https://apps.apple.com/app/id1625396809)
+   - Android: [ntfy - Push Notifications](https://play.google.com/store/apps/details?id=io.heckel.ntfy)
+
+2. **トピックを購読**:
+   - アプリを開く
+   - 「Subscribe」タブをタップ
+   - トピック名を入力（例: `your-unique-topic-name`）
+   - Subscribeをタップ
+
+3. **通知テスト**:
+   ```bash
+   curl -d "テスト通知" "ntfy.sh/your-unique-topic-name"
+   ```
+
+公式サイト: https://ntfy.sh/
 
 ## ファイル構成
 
