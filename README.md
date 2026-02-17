@@ -51,12 +51,36 @@ vim config.sh  # DEVICEなどを編集
           }
         ]
       }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/promicro-presence/notify_if_absent.sh"
+          }
+        ]
+      }
     ]
   }
 }
 ```
 
-これで在室時（閾値以下）は通知せず、不在時（閾値以上）のみ通知が届きます。
+### Hookの発火タイミング
+
+| Hook | 発火タイミング |
+|------|--------------|
+| `Stop` | Claudeが一連の応答を完了したとき |
+| `Notification` | ツールの実行許可（パーミッション確認ダイアログ）を求めるとき / 入力待ちが60秒以上続いたとき |
+
+両方に設定することで、「作業完了」と「許可待ち（例: `chmod` などの確認ダイアログ）」のどちらでも通知が届きます。
+
+## 通知の流れ
+
+1. Claude CodeがHookを発火
+2. `notify_if_absent.sh` がHC-SR04で距離を計測
+3. 在室（閾値以下）→ 音だけ鳴らして通知しない
+4. 不在（閾値超え）→ ntfy.sh経由でスマートウォッチに通知
 
 ## ファイル構成
 
@@ -73,3 +97,4 @@ vim config.sh  # DEVICEなどを編集
 - `THRESHOLD_CM` - 在室判定の閾値（cm）、この距離以下なら在室とみなす
 - `NOTIFY_URL` - ntfy.shのトピックURL
 - `NOTIFY_MESSAGE` - 通知メッセージ
+- `SOUND_FILE` - 在室時に鳴らす音声ファイルのパス

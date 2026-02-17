@@ -10,6 +10,7 @@ DISTANCE=$(head -n 1 "$DEVICE" 2>/dev/null)
 
 # 距離が取得できなかった場合は通知する（安全側）
 if [ -z "$DISTANCE" ]; then
+    afplay "$SOUND_FILE" &
     curl -s -d "$NOTIFY_MESSAGE" "$NOTIFY_URL"
     exit 0
 fi
@@ -17,12 +18,14 @@ fi
 # 整数に丸めて比較
 DISTANCE_INT=${DISTANCE%.*}
 
+afplay "$SOUND_FILE" &
+
 # 在室判定（閾値以下なら在室とみなす）
 if [ "$DISTANCE_INT" -le "$THRESHOLD_CM" ]; then
     # 在室: 通知しない
     exit 0
 else
-    # 不在: 通知を送る
+    # 不在: 音を鳴らして通知を送る
     curl -s -d "$NOTIFY_MESSAGE" "$NOTIFY_URL"
     exit 0
 fi
