@@ -19,7 +19,7 @@ HC-SR04 → Pro Micro → USB → Mac → シェルスクリプト → Claude Co
 
 ## インストール
 
-1. Arduino IDEで `promicro_presence/promicro_presence.ino` を開く
+1. Arduino IDEで `promicro_presence.ino` を開く
 2. ボード: `Arduino Micro`、ポート: `/dev/cu.usbmodem*` を選択
 3. Pro Microに書き込む
 
