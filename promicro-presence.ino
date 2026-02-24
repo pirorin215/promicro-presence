@@ -1,10 +1,14 @@
 // Pro Micro + HC-SR04 距離センサー + LED
 // 距離をcm単位でシリアル送信
-// distanceが150cm以内ならLED点灯
+// 閾値はシリアルコマンド 'T150' で設定可能
+// distanceが閾値以内ならLED点灯
 
 const int TRIG_PIN = 4;
 const int ECHO_PIN = 5;
 const int LED_PIN = 9;
+
+int threshold_cm = 150;  // デフォルト値（フェイルセーフ）
+bool threshold_received = false;  // 閾値受信フラグ
 
 void setup() {
   Serial.begin(9600);
@@ -45,11 +49,24 @@ void loop() {
   // 距離を送信
   Serial.println(distance, 1);
 
-  // distanceが150以内ならLED点灯
-  if (distance <= 150) {
+  // distanceが閾値以内ならLED点灯
+  if (distance <= threshold_cm) {
     digitalWrite(LED_PIN, HIGH);
   } else {
     digitalWrite(LED_PIN, LOW);
+  }
+
+  // シリアルコマンドをチェック（閾値更新）
+  if (Serial.available() > 0) {
+    String command = Serial.readStringUntil('\n');
+    command.trim();
+    if (command.startsWith("T")) {
+      int new_threshold = command.substring(1).toInt();
+      if (new_threshold > 0 && new_threshold < 1000) {
+        threshold_cm = new_threshold;
+        threshold_received = true;
+      }
+    }
   }
 
   delay(10);
