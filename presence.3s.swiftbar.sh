@@ -13,23 +13,30 @@ if [ -n "$THRESHOLD_CM" ]; then
     printf 'T%d\n' "$THRESHOLD_CM" > "$DEVICE" 2>/dev/null
 fi
 
-# ディスプレイ制御設定ファイル
-DISPLAY_CONTROL_ENABLED_FILE="$HOME/.display_control_enabled"
-# デバッグモード設定ファイル
-DEBUG_MODE_FILE="$HOME/.display_control_debug"
-# 一時停止設定ファイル
-PAUSED_FILE="$HOME/.display_control_paused"
-# 状態ファイル
-STATE_FILE="$HOME/.display_control_state"
-# ディスプレイをオフにするまでの秒数設定ファイル
-DISPLAY_OFF_THRESHOLD_FILE="$HOME/.display_control_off_threshold"
+# 設定ファイルディレクトリ
+CONFIG_DIR=~/Documents/Arduino/promicro-presence
+# 状態ファイル（不在カウント、ディスプレイOFF状態）
+STATE_FILE="$CONFIG_DIR/.presence_display_state"
 
-# ディスプレイをオフにするまでの回数（3秒間隔）
-if [ -f "$DISPLAY_OFF_THRESHOLD_FILE" ]; then
-    DISPLAY_OFF_THRESHOLD=$(cat "$DISPLAY_OFF_THRESHOLD_FILE")
-else
-    DISPLAY_OFF_THRESHOLD=10  # デフォルト: 30秒 (10回 × 3秒)
-fi
+# 設定ファイルに保存（ディスプレイ制御設定のみ）
+save_config() {
+    # config.shのディスプレイ制御設定部分を更新
+    sed -i '' "s/^DISPLAY_OFF_SECONDS=.*/DISPLAY_OFF_SECONDS=$DISPLAY_OFF_SECONDS/" "$CONFIG_DIR/config.sh"
+    sed -i '' "s/^DEBUG_MODE=.*/DEBUG_MODE=$DEBUG_MODE/" "$CONFIG_DIR/config.sh"
+    sed -i '' "s/^PAUSED=.*/PAUSED=$PAUSED/" "$CONFIG_DIR/config.sh"
+}
+
+# ディスプレイをONにする
+display_on() {
+    caffeinate -u -t 1 &
+    IS_DISPLAY_OFF=false
+}
+
+# ディスプレイをOFFにする
+display_off() {
+    pmset displaysleepnow
+    IS_DISPLAY_OFF=true
+}
 
 # 状態ファイルから読み込み
 load_state() {
@@ -49,17 +56,25 @@ IS_DISPLAY_OFF=$IS_DISPLAY_OFF
 EOF
 }
 
+# 設定の更新関数
+update_config() {
+    load_config
+    save_config
+}
+
 # メニューアクション処理
 ACTION="$1"
 
 # トグルアクション
 case "$ACTION" in
     --toggle-pause)
-        if [ -f "$PAUSED_FILE" ]; then
-            rm -f "$PAUSED_FILE"
+        load_config
+        if [ "$PAUSED" = true ]; then
+            PAUSED=false
         else
-            touch "$PAUSED_FILE"
+            PAUSED=true
         fi
+        save_config
         exit 0
         ;;
     --set-threshold-*)
@@ -79,54 +94,38 @@ case "$ACTION" in
 
         if [ "$display_off_seconds" = "0" ]; then
             # 0の場合はディスプレイ自動制御をOFF
-            rm -f "$DISPLAY_CONTROL_ENABLED_FILE"
-            rm -f "$STATE_FILE"
+            DISPLAY_CONTROL_ENABLED=false
+            DISPLAY_OFF_SECONDS=0
         else
-            # 回数に変換（3秒間隔なので ÷3）
-            display_off_count=$((display_off_seconds / 3))
-
-            # 設定ファイルに保存
-            echo "$display_off_count" > "$DISPLAY_OFF_THRESHOLD_FILE"
-
+            # 秒数を設定
+            DISPLAY_OFF_SECONDS=$display_off_seconds
             # ディスプレイ自動制御をON
-            if [ ! -f "$DISPLAY_CONTROL_ENABLED_FILE" ]; then
-                touch "$DISPLAY_CONTROL_ENABLED_FILE"
-                # 状態初期化
-                ABSENT_COUNT=0
-                IS_DISPLAY_OFF=false
-                save_state
-            fi
-        fi
-
-        exit 0
-        ;;
-    --toggle-display-control)
-        # 内部使用のみ（画面OFF時間設定から自動的に呼ばれる）
-        if [ -f "$DISPLAY_CONTROL_ENABLED_FILE" ]; then
-            rm -f "$DISPLAY_CONTROL_ENABLED_FILE"
-            # 状態もリセット
-            rm -f "$STATE_FILE"
-        else
-            touch "$DISPLAY_CONTROL_ENABLED_FILE"
+            DISPLAY_CONTROL_ENABLED=true
             # 状態初期化
             ABSENT_COUNT=0
             IS_DISPLAY_OFF=false
             save_state
+            # 初期化時にdisplay_onを呼んで状態をセット
+            display_on
         fi
+        save_config
         exit 0
         ;;
     --toggle-debug-mode)
-        if [ -f "$DEBUG_MODE_FILE" ]; then
-            rm -f "$DEBUG_MODE_FILE"
+        load_config
+        if [ "$DEBUG_MODE" = true ]; then
+            DEBUG_MODE=false
         else
-            touch "$DEBUG_MODE_FILE"
+            DEBUG_MODE=true
         fi
+        save_config
         exit 0
         ;;
 esac
 
 # 一時停止中なら距離取得をスキップ
-if [ -f "$PAUSED_FILE" ]; then
+load_config
+if [ "$PAUSED" = true ]; then
     echo "⏸️ 一時停止中 | color=yellow"
     IS_PAUSED=true
 else
@@ -150,22 +149,23 @@ else
     load_state
 
     # ディスプレイ制御が有効な場合の処理
-    if [ -f "$DISPLAY_CONTROL_ENABLED_FILE" ]; then
+    if [ "$DISPLAY_OFF_SECONDS" -gt 0 ]; then
         # 在室判定
         if [ "$DISTANCE_INT" -le "$THRESHOLD_CM" ]; then
             # 在室
             if [ "$IS_DISPLAY_OFF" = true ]; then
-                caffeinate -u -t 1 &
-                IS_DISPLAY_OFF=false
+                display_on
             fi
             ABSENT_COUNT=0
         else
             # 不在
             ABSENT_COUNT=$((ABSENT_COUNT + 1))
 
+            # 秒数を回数に変換（3秒間隔なので ÷3、切り上げ）
+            DISPLAY_OFF_THRESHOLD=$(( (DISPLAY_OFF_SECONDS + 2) / 3 ))
+
             if [ "$IS_DISPLAY_OFF" = false ] && [ "$ABSENT_COUNT" -ge "$DISPLAY_OFF_THRESHOLD" ]; then
-                pmset displaysleepnow
-                IS_DISPLAY_OFF=true
+                display_off
             fi
         fi
 
@@ -176,16 +176,16 @@ else
     # 在室判定（表示用）
     if [ "$DISTANCE_INT" -le "$THRESHOLD_CM" ]; then
         # 在室
-        if [ -f "$DEBUG_MODE_FILE" ]; then
-            echo "🟢 ${DISTANCE_INT}cm (A:${ABSENT_COUNT}) | color=green"
+        if [ "$DEBUG_MODE" = true ]; then
+            echo "🟢 ${DISTANCE_INT}cm (A:${ABSENT_COUNT})"
         else
-            echo "🟢 ${DISTANCE_INT}cm | color=green"
+            echo "🟢 ${DISTANCE_INT}cm"
         fi
         echo "---"
         echo "Status: 在室"
     else
         # 不在
-        if [ -f "$DEBUG_MODE_FILE" ]; then
+        if [ "$DEBUG_MODE" = true ]; then
             echo "🟠 ${DISTANCE_INT}cm (A:${ABSENT_COUNT}) | color=orange"
         else
             echo "🟠 ${DISTANCE_INT}cm | color=orange"
@@ -200,12 +200,12 @@ echo "---"
 echo "Device: $DEVICE"
 
 # 一時停止の状態表示
-if [ -f "$PAUSED_FILE" ]; then
+if [ "$PAUSED" = true ]; then
     echo "---"
     echo "⏸️ 一時停止: ON | color=yellow"
 else
     echo "---"
-    echo "⏸️ 一時停止: OFF | color=gray"
+    echo "⏸️ 一時停止: OFF"
 fi
 echo "--一時停止を切り替え | bash=$0 param1=--toggle-pause terminal=false refresh=true"
 
@@ -218,37 +218,33 @@ echo "--150cm | bash=$0 param1=--set-threshold-150 terminal=false refresh=true"
 echo "--200cm | bash=$0 param1=--set-threshold-200 terminal=false refresh=true"
 
 # 画面OFFまでの秒数変更メニュー
-if [ -f "$DISPLAY_CONTROL_ENABLED_FILE" ]; then
-    display_off_seconds=$((DISPLAY_OFF_THRESHOLD * 3))
-    echo "---"
-    echo "⏱️  画面OFFまで: ${display_off_seconds}秒"
+echo "---"
+if [ "$DISPLAY_OFF_SECONDS" -eq 0 ]; then
+    echo "⏱️  画面OFFまで: OFF"
+else
+    # 秒数を回数に変換（3秒間隔、切り上げ）
+    DISPLAY_OFF_THRESHOLD=$(( (DISPLAY_OFF_SECONDS + 2) / 3 ))
+
+    echo "⏱️  画面OFFまで: ${DISPLAY_OFF_SECONDS}秒"
     if [ "${IS_DISPLAY_OFF:-false}" = true ]; then
         echo "--Display: OFF | color=red"
     else
-        echo "--Display: ON | color=green"
+        echo "--Display: ON"
     fi
     echo "--Absent Count: ${ABSENT_COUNT:-0}/${DISPLAY_OFF_THRESHOLD}"
-    echo "---"
-    echo "--OFF | bash=$0 param1=--set-display-off-0 terminal=false refresh=true"
-    echo "--30秒 | bash=$0 param1=--set-display-off-30 terminal=false refresh=true"
-    echo "--60秒 | bash=$0 param1=--set-display-off-60 terminal=false refresh=true"
-    echo "--90秒 | bash=$0 param1=--set-display-off-90 terminal=false refresh=true"
-    echo "--120秒 | bash=$0 param1=--set-display-off-120 terminal=false refresh=true"
-else
-    echo "---"
-    echo "⏱️  画面OFFまで: OFF"
-    echo "---"
-    echo "--30秒 | bash=$0 param1=--set-display-off-30 terminal=false refresh=true"
-    echo "--60秒 | bash=$0 param1=--set-display-off-60 terminal=false refresh=true"
-    echo "--90秒 | bash=$0 param1=--set-display-off-90 terminal=false refresh=true"
-    echo "--120秒 | bash=$0 param1=--set-display-off-120 terminal=false refresh=true"
 fi
+echo "---"
+echo "--OFF | bash=$0 param1=--set-display-off-0 terminal=false refresh=true"
+echo "--30秒 | bash=$0 param1=--set-display-off-30 terminal=false refresh=true"
+echo "--60秒 | bash=$0 param1=--set-display-off-60 terminal=false refresh=true"
+echo "--90秒 | bash=$0 param1=--set-display-off-90 terminal=false refresh=true"
+echo "--120秒 | bash=$0 param1=--set-display-off-120 terminal=false refresh=true"
 
 echo "---"
-if [ -f "$DEBUG_MODE_FILE" ]; then
+if [ "$DEBUG_MODE" = true ]; then
     echo "🐛 デバッグモード: ON | color=yellow"
 else
-    echo "🐛 デバッグモード: OFF | color=gray"
+    echo "🐛 デバッグモード: OFF"
 fi
 echo "--デバッグモードを切り替え | bash=$0 param1=--toggle-debug-mode terminal=false refresh=true"
 

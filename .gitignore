@@ -9,3 +9,9 @@
 
 # 設定ファイル（個人設定を含むため）
 config.sh
+
+# 状態ファイル（実行時に生成される）
+.presence_display_state
+
+# コード検索インデックス
+.cocoindex_code/
