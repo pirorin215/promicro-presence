@@ -6,12 +6,6 @@
 # <swiftbar.hideLastUpdated>false</swiftbar.hideLastUpdated>
 # <swiftbar.image>system:name=display</swiftbar.image>
 
-# ディスプレイ接続検出時に自動的にcaffeinateを発行してディスプレイをオンにする
-#
-# 使い方:
-# 1. SwiftBarでこのスクリプトを追加（3秒間隔推奨）
-# 2. Thunderboltハブなどを接続すると自動的にディスプレイが起動します
-
 # 状態ファイル
 STATE_FILE="$HOME/.monitor_connect_wake_state"
 # 一時停止設定ファイル
@@ -52,8 +46,8 @@ case "$ACTION" in
         fi
         exit 0
         ;;
-    --open-log)
-        open "$LOG_FILE"
+    --open-displays)
+        open "x-apple.systempreferences:com.apple.preference.displays"
         exit 0
         ;;
 esac
@@ -65,17 +59,40 @@ else
     # 状態を読み込み
     load_state
 
-    # 現在接続されているディスプレイ数を取得
-    # Resolution行の直前にあるディスプレイ名を取得し、"Display:"と"Resolution:"を除外
-    DISPLAYS=$(system_profiler SPDisplaysDataType 2>/dev/null | grep -B1 "Resolution" | grep "^\s*[A-Z]" | grep -v "^\s*Display$" | grep -v "^\s*Resolution:")
+    # 現在接続されているディスプレイ情報を取得（名前と解像度のペア）
+    # grep -B1 "Resolution:" でディスプレイ名と解像度を取得して整形
+    DISPLAY_INFO=$(system_profiler SPDisplaysDataType 2>/dev/null | grep -B1 "Resolution:" | awk '
+        BEGIN { display_name = ""; resolution = ""; }
+        /^[[:space:]]+[A-Z].*:[[:space:]]*$/ {
+            # ディスプレイ名行（: で終わるもの）
+            display_name = $0;
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", display_name);
+            next;
+        }
+        /Resolution:/ {
+            # 解像度行
+            resolution = $0;
+            sub(/^[[:space:]]*Resolution:[[:space:]]*/, "", resolution);
+            # 括弧以下の情報を削除（例: 3440 x 1440 (UWQHD - Ultra-Wide Quad HD) -> 3440 x 1440）
+            sub(/[[:space:]]*\(.*$/, "", resolution);
+            gsub(/[[:space:]]+$/, "", resolution);
+            # ディスプレイ名と解像度をペアで出力
+            if (display_name != "") {
+                print display_name "|" resolution;
+                display_name = "";
+                resolution = "";
+            }
+            next;
+        }
+    ')
 
     # Display:のみの場合は物理ディスプレイなし
-    if echo "$DISPLAYS" | grep -q "^\s*Display:$"; then
+    if [ -z "$DISPLAY_INFO" ]; then
         CURRENT_DISPLAY_COUNT=0
         DISPLAY_NAME="(なし)"
     else
-        CURRENT_DISPLAY_COUNT=$(echo "$DISPLAYS" | wc -l | tr -d '[:space:]')
-        DISPLAY_NAME=$(echo "$DISPLAYS" | head -1 | tr -d '[:space:]')
+        CURRENT_DISPLAY_COUNT=$(echo "$DISPLAY_INFO" | wc -l | tr -d '[:space:]')
+        DISPLAY_NAME=$(echo "$DISPLAY_INFO" | head -1 | cut -d'|' -f1 | tr -d '[:space:]')
     fi
 
     log "ディスプレイ数: ${CURRENT_DISPLAY_COUNT} (${DISPLAY_NAME})"
@@ -83,9 +100,6 @@ else
     # ディスプレイ数が増えた（接続された）場合
     if [ "$CURRENT_DISPLAY_COUNT" -gt "$PREV_DISPLAY_COUNT" ]; then
         log "ディスプレイ接続を検出: ${PREV_DISPLAY_COUNT} -> ${CURRENT_DISPLAY_COUNT}"
-        log "caffeinate -u -t 1 を発行"
-        # ディスプレイをオンにする
-        caffeinate -u -t 1 &
     fi
 
     # 状態を保存
@@ -100,14 +114,18 @@ else
 fi
 
 echo "---"
-if [ -n "${DISPLAYS:-}" ]; then
+if [ -n "${DISPLAY_INFO:-}" ]; then
     if [ "$CURRENT_DISPLAY_COUNT" -eq 0 ]; then
         echo "ディスプレイ: 接続なし | color=gray"
     else
-        # 複数のディスプレイをそれぞれ表示
-        echo "$DISPLAYS" | while read -r display; do
-            display_trimmed=$(echo "$display" | tr -d '[:space:]')
-            echo "ディスプレイ: $display_trimmed"
+        # 複数のディスプレイをそれぞれ表示（名前と解像度）
+        echo "$DISPLAY_INFO" | while IFS='|' read -r display_name resolution; do
+            display_name_trimmed=$(echo "$display_name" | tr -d '[:space:]')
+            if [ -n "$resolution" ]; then
+                echo "$display_name_trimmed ($resolution)"
+            else
+                echo "ディスプレイ: $display_name_trimmed"
+            fi
         done
     fi
 fi
@@ -119,6 +137,6 @@ else
 fi
 echo "--一時停止 | bash=$0 param1=--toggle-pause terminal=false refresh=true"
 echo "---"
-echo "ログを開く | bash=$0 param1=--open-log terminal=false"
+echo "ディスプレイ設定を開く | bash=$0 param1=--open-displays terminal=false"
 echo "---"
 echo "Refresh | refresh=true"

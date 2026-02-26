@@ -28,7 +28,7 @@ save_config() {
 
 # ディスプレイをONにする
 display_on() {
-    caffeinate -u -t 1 &
+    caffeinate -u -t 1
     IS_DISPLAY_OFF=false
 }
 
@@ -105,8 +105,6 @@ case "$ACTION" in
             ABSENT_COUNT=0
             IS_DISPLAY_OFF=false
             save_state
-            # 初期化時にdisplay_onを呼んで状態をセット
-            display_on
         fi
         save_config
         exit 0
@@ -153,9 +151,7 @@ else
         # 在室判定
         if [ "$DISTANCE_INT" -le "$THRESHOLD_CM" ]; then
             # 在室
-            if [ "$IS_DISPLAY_OFF" = true ]; then
-                display_on
-            fi
+            display_on
             ABSENT_COUNT=0
         else
             # 不在
@@ -235,9 +231,9 @@ else
 fi
 echo "---"
 echo "--OFF | bash=$0 param1=--set-display-off-0 terminal=false refresh=true"
+echo "--10秒 | bash=$0 param1=--set-display-off-10 terminal=false refresh=true"
 echo "--30秒 | bash=$0 param1=--set-display-off-30 terminal=false refresh=true"
 echo "--60秒 | bash=$0 param1=--set-display-off-60 terminal=false refresh=true"
-echo "--90秒 | bash=$0 param1=--set-display-off-90 terminal=false refresh=true"
 echo "--120秒 | bash=$0 param1=--set-display-off-120 terminal=false refresh=true"
 
 echo "---"
