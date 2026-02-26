@@ -15,7 +15,7 @@ fi
 
 # 設定ファイルディレクトリ
 CONFIG_DIR=~/Documents/Arduino/promicro-presence
-# 状態ファイル（不在カウント、ディスプレイOFF状態）
+# 状態ファイル（不在カウント、ディスプレイOFF状態、前回の距離）
 STATE_FILE="$CONFIG_DIR/.presence_display_state"
 
 # 設定ファイルに保存（ディスプレイ制御設定のみ）
@@ -45,6 +45,7 @@ load_state() {
     else
         ABSENT_COUNT=0
         IS_DISPLAY_OFF=false
+        PREV_DISTANCE_INT=999
     fi
 }
 
@@ -53,6 +54,7 @@ save_state() {
     cat > "$STATE_FILE" <<EOF
 ABSENT_COUNT=$ABSENT_COUNT
 IS_DISPLAY_OFF=$IS_DISPLAY_OFF
+PREV_DISTANCE_INT=$PREV_DISTANCE_INT
 EOF
 }
 
@@ -148,10 +150,16 @@ else
 
     # ディスプレイ制御が有効な場合の処理
     if [ "$DISPLAY_OFF_SECONDS" -gt 0 ]; then
+        # 距離の変化量を計算
+        DISTANCE_DIFF=$((DISTANCE_INT - PREV_DISTANCE_INT))
+        DISTANCE_DIFF=${DISTANCE_DIFF#-}  # 絶対値
+
         # 在室判定
         if [ "$DISTANCE_INT" -le "$THRESHOLD_CM" ]; then
-            # 在室
-            display_on
+            # 在室：10cm以上の変動がある場合のみdisplay_on
+            if [ "$DISTANCE_DIFF" -ge 10 ]; then
+                display_on
+            fi
             ABSENT_COUNT=0
         else
             # 不在
@@ -165,7 +173,8 @@ else
             fi
         fi
 
-        # 状態を保存
+        # 前回の距離を更新して保存
+        PREV_DISTANCE_INT=$DISTANCE_INT
         save_state
     fi
 
