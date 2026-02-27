@@ -26,9 +26,8 @@ save_config() {
     sed -i '' "s/^PAUSED=.*/PAUSED=$PAUSED/" "$CONFIG_DIR/config.sh"
 }
 
-# ディスプレイをONにする（ArduinoにF20キー送信コマンド）
+# ディスプレイをONにする（ArduinoにWコマンド送信、USB給電OFF時のみ）
 display_on() {
-    # caffeinate -u -t 1  # 元の方法（macOSコマンド）
     printf 'W\n' > "$DEVICE" 2>/dev/null
     IS_DISPLAY_OFF=false
 }
@@ -46,7 +45,6 @@ load_state() {
     else
         ABSENT_COUNT=0
         IS_DISPLAY_OFF=false
-        PREV_DISTANCE_INT=999
     fi
 }
 
@@ -55,7 +53,6 @@ save_state() {
     cat > "$STATE_FILE" <<EOF
 ABSENT_COUNT=$ABSENT_COUNT
 IS_DISPLAY_OFF=$IS_DISPLAY_OFF
-PREV_DISTANCE_INT=$PREV_DISTANCE_INT
 EOF
 }
 
@@ -130,8 +127,10 @@ if [ "$PAUSED" = true ]; then
     echo "⏸️ 一時停止中 | color=yellow"
     IS_PAUSED=true
 else
-    # 距離を取得
-    DISTANCE=$(head -n 1 "$DEVICE" 2>/dev/null)
+    # 距離とUSB給電状態を取得
+    SENSOR_DATA=$(head -n 1 "$DEVICE" 2>/dev/null)
+    DISTANCE=$(echo "$SENSOR_DATA" | cut -d',' -f1)
+    USB_POWER=$(echo "$SENSOR_DATA" | cut -d',' -f2)
 
     # デバイス接続エラー
     if [ -z "$DISTANCE" ]; then
@@ -145,20 +144,28 @@ else
     # 整数に丸めて空白を削除
     DISTANCE_INT=${DISTANCE%.*}
     DISTANCE_INT=$(echo "$DISTANCE_INT" | tr -d '[:space:]')
+    USB_POWER_INT=$(echo "$USB_POWER" | tr -d '[:space:]')
+
+    # USB状態マーク（300以上でONと判定）
+    if [ "$USB_POWER_INT" -gt 300 ]; then
+        USB_MARK="⚡"  # ON
+    else
+        USB_MARK="💤"  # OFF
+    fi
 
     # 状態を読み込み
     load_state
 
     # ディスプレイ制御が有効な場合の処理
     if [ "$DISPLAY_OFF_SECONDS" -gt 0 ]; then
-        # 距離の変化量を計算
-        DISTANCE_DIFF=$((DISTANCE_INT - PREV_DISTANCE_INT))
-        DISTANCE_DIFF=${DISTANCE_DIFF#-}  # 絶対値
-
         # 在室判定
         if [ "$DISTANCE_INT" -le "$THRESHOLD_CM" ]; then
-            # 在室：10cm以上の変動がある場合、またはディスプレイがOFF状態の場合
-            if [ "$DISTANCE_DIFF" -ge 10 ] || [ "$IS_DISPLAY_OFF" = true ]; then
+            # 在室：ディスプレイがOFF状態の場合
+            if [ "$IS_DISPLAY_OFF" = true ]; then
+                display_on
+            fi
+            # USB給電がOFFの時はdisplay_on
+            if [ -n "$USB_POWER_INT" ] && [ "$USB_POWER_INT" -le 300 ]; then
                 display_on
             fi
             ABSENT_COUNT=0
@@ -174,8 +181,6 @@ else
             fi
         fi
 
-        # 前回の距離を更新して保存
-        PREV_DISTANCE_INT=$DISTANCE_INT
         save_state
     fi
 
@@ -183,18 +188,18 @@ else
     if [ "$DISTANCE_INT" -le "$THRESHOLD_CM" ]; then
         # 在室
         if [ "$DEBUG_MODE" = true ]; then
-            echo "🟢 ${DISTANCE_INT}cm (A:${ABSENT_COUNT})"
+            echo "🟢 ${DISTANCE_INT}cm ${USB_MARK} (A:${ABSENT_COUNT})"
         else
-            echo "🟢 ${DISTANCE_INT}cm"
+            echo "🟢 ${DISTANCE_INT}cm ${USB_MARK}"
         fi
         echo "---"
         echo "Status: 在室"
     else
         # 不在
         if [ "$DEBUG_MODE" = true ]; then
-            echo "🟠 ${DISTANCE_INT}cm (A:${ABSENT_COUNT}) | color=orange"
+            echo "🟠 ${DISTANCE_INT}cm ${USB_MARK} (A:${ABSENT_COUNT}) | color=orange"
         else
-            echo "🟠 ${DISTANCE_INT}cm | color=orange"
+            echo "🟠 ${DISTANCE_INT}cm ${USB_MARK} | color=orange"
         fi
         echo "---"
         echo "Status: 不在"
@@ -254,5 +259,14 @@ else
 fi
 echo "--デバッグモードを切り替え | bash=$0 param1=--toggle-debug-mode terminal=false refresh=true"
 
+echo "---"
+if [ "$DEBUG_MODE" = true ] && [ -n "$USB_POWER_INT" ]; then
+    # USB状態を表示
+    if [ "$USB_POWER_INT" -gt 300 ]; then
+        echo "⚡ USB Display: ON ($USB_POWER_INT) | color=green"
+    else
+        echo "💤 USB Display: OFF ($USB_POWER_INT) | color=gray"
+    fi
+fi
 echo "---"
 echo "Refresh | refresh=true"

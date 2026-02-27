@@ -9,6 +9,8 @@
 const int TRIG_PIN = 4;
 const int ECHO_PIN = 5;
 const int LED_PIN = 9;
+const int DISPLAY_USB_POWER_PIN = A10;  // ディスプレイUSB給電検知用（アナログ入力）
+const int USB_POWER_THRESHOLD = 300;    // USB給電判定閾値（0V=0, 1.5V≒465）
 
 // HIDキーコード定数（未定義の無効なキーコード）
 const uint8_t WAKE_KEYCODE = 0xA5;
@@ -22,6 +24,7 @@ void setup() {
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
   pinMode(LED_PIN, OUTPUT);
+  pinMode(DISPLAY_USB_POWER_PIN, INPUT);  // ディスプレイUSB給電検知
 
   // Keyboard.begin()は最初の'W'コマンド時のみ呼ぶ
   // （起動時に呼ぶとシリアル接続が切れる可能性があるため）
@@ -42,6 +45,16 @@ void sendRawHIDKey(uint8_t hidKeycode) {
   delay(50);
   memset(buf, 0, 8);
   HID().SendReport(2, buf, 8);
+}
+
+// ディスプレイON関数（'W'コマンドでHID送信）
+void display_on() {
+  if (!keyboard_initialized) {
+    Keyboard.begin();
+    delay(1000);
+    keyboard_initialized = true;
+  }
+  sendRawHIDKey(WAKE_KEYCODE);
 }
 
 float distance_old = 0;
@@ -66,8 +79,11 @@ void loop() {
     distance_old = distance;
   }
 
-  // 距離を送信
-  Serial.println(distance, 1);
+  // 距離とGPIO状態を送信（デバッグ用）
+  int usbPower = analogRead(DISPLAY_USB_POWER_PIN);
+  Serial.print(distance, 1);
+  Serial.print(",");
+  Serial.println(usbPower);
 
   // distanceが閾値以内ならLED点灯
   if (distance <= threshold_cm) {
@@ -83,14 +99,7 @@ void loop() {
 
     // 'W' コマンド：キーを送信してディスプレイを起こす
     if (command == "W") {
-      // 最初の1回だけキーボードを初期化（再接続防止）
-      if (!keyboard_initialized) {
-        Keyboard.begin();
-        delay(1000);  // 初期化待ち
-        keyboard_initialized = true;
-      }
-      // 無効なキーコードを送信してディスプレイを起こす
-      sendRawHIDKey(WAKE_KEYCODE);
+      display_on();  // GPIO10チェック済みの関数を呼ぶ
     }
     // 'T' コマンド：閾値更新
     else if (command.startsWith("T")) {
