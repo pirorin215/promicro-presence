@@ -1,14 +1,21 @@
 // Pro Micro + HC-SR04 距離センサー + LED
 // 距離をcm単位でシリアル送信
 // 閾値はシリアルコマンド 'T150' で設定可能
+// 'W' コマンドでキーを送信してディスプレイを起こす
 // distanceが閾値以内ならLED点灯
+
+#include <Keyboard.h>
 
 const int TRIG_PIN = 4;
 const int ECHO_PIN = 5;
 const int LED_PIN = 9;
 
+// HIDキーコード定数（未定義の無効なキーコード）
+const uint8_t WAKE_KEYCODE = 0xA5;
+
 int threshold_cm = 150;  // デフォルト値（フェイルセーフ）
 bool threshold_received = false;  // 閾値受信フラグ
+bool keyboard_initialized = false;  // キーボード初期化フラグ
 
 void setup() {
   Serial.begin(9600);
@@ -16,12 +23,25 @@ void setup() {
   pinMode(ECHO_PIN, INPUT);
   pinMode(LED_PIN, OUTPUT);
 
+  // Keyboard.begin()は最初の'W'コマンド時のみ呼ぶ
+  // （起動時に呼ぶとシリアル接続が切れる可能性があるため）
+
   // TX/RX LEDを無効にする (PD5, PB0を入力モードに設定)
   DDRD &= ~(1 << 5);  // TX LED (PD5) Input
   PORTD &= ~(1 << 5); // TX LED (PD5) No Pull-up (Hi-Z) - 消灯
 
   DDRB &= ~(1 << 0);  // RX LED (PB0) Input
   PORTB &= ~(1 << 0); // RX LED (PB0) No Pull-up (Hi-Z) - 消灯
+}
+
+// Raw HIDキー送信関数（無効なキーコードを送信してディスプレイを起こす）
+void sendRawHIDKey(uint8_t hidKeycode) {
+  uint8_t buf[8] = {0};
+  buf[2] = hidKeycode;
+  HID().SendReport(2, buf, 8);
+  delay(50);
+  memset(buf, 0, 8);
+  HID().SendReport(2, buf, 8);
 }
 
 float distance_old = 0;
@@ -56,11 +76,24 @@ void loop() {
     digitalWrite(LED_PIN, LOW);
   }
 
-  // シリアルコマンドをチェック（閾値更新）
+  // シリアルコマンドをチェック
   if (Serial.available() > 0) {
     String command = Serial.readStringUntil('\n');
     command.trim();
-    if (command.startsWith("T")) {
+
+    // 'W' コマンド：キーを送信してディスプレイを起こす
+    if (command == "W") {
+      // 最初の1回だけキーボードを初期化（再接続防止）
+      if (!keyboard_initialized) {
+        Keyboard.begin();
+        delay(1000);  // 初期化待ち
+        keyboard_initialized = true;
+      }
+      // 無効なキーコードを送信してディスプレイを起こす
+      sendRawHIDKey(WAKE_KEYCODE);
+    }
+    // 'T' コマンド：閾値更新
+    else if (command.startsWith("T")) {
       int new_threshold = command.substring(1).toInt();
       if (new_threshold > 0 && new_threshold < 1000) {
         threshold_cm = new_threshold;

@@ -26,9 +26,10 @@ save_config() {
     sed -i '' "s/^PAUSED=.*/PAUSED=$PAUSED/" "$CONFIG_DIR/config.sh"
 }
 
-# ディスプレイをONにする
+# ディスプレイをONにする（ArduinoにF20キー送信コマンド）
 display_on() {
-    caffeinate -u -t 1
+    # caffeinate -u -t 1  # 元の方法（macOSコマンド）
+    printf 'W\n' > "$DEVICE" 2>/dev/null
     IS_DISPLAY_OFF=false
 }
 
@@ -156,8 +157,8 @@ else
 
         # 在室判定
         if [ "$DISTANCE_INT" -le "$THRESHOLD_CM" ]; then
-            # 在室：10cm以上の変動がある場合のみdisplay_on
-            if [ "$DISTANCE_DIFF" -ge 10 ]; then
+            # 在室：10cm以上の変動がある場合、またはディスプレイがOFF状態の場合
+            if [ "$DISTANCE_DIFF" -ge 10 ] || [ "$IS_DISPLAY_OFF" = true ]; then
                 display_on
             fi
             ABSENT_COUNT=0

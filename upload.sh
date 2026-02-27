@@ -1,1 +1,1 @@
-arduino-cli upload -p /dev/cu.usbmodem124301 -b arduino:avr:leonardo promicro-presence.ino
+arduino-cli upload -p /dev/cu.usbmodemHIDPC1 -b arduino:avr:leonardo promicro-presence.ino

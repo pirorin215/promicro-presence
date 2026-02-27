@@ -131,7 +131,7 @@ NOTIFY_URL="ntfy.sh/$(uuidgen | tr -d '-')"
 
 ## 設定項目（config.sh）
 
-- `DEVICE` - Pro Microのデバイスパス（例: `/dev/cu.usbmodem124301`）
+- `DEVICE` - Pro Microのデバイスパス（例: `/dev/cu.usbmodemHIDPC1`）
 - `THRESHOLD_CM` - 在室判定の閾値（cm）、この距離以下なら在室とみなす
 - `NOTIFY_URL` - ntfy.shのトピックURL
 - `NOTIFY_MESSAGE` - 通知メッセージ
