@@ -8,24 +8,34 @@
 
 . ~/Documents/Arduino/promicro-presence/config.sh
 
+# 定数
+USB_POWER_THRESHOLD=300  # USB給電ON判定の閾値
+LOG_ROTATION_INTERVAL=100  # ログ回転チェック間隔（呼び出し回数）
+
 # ログファイル設定
 LOG_FILE="/tmp/presence_debug.log"
 MAX_LOG_LINES=5000  # ログファイルの最大行数（肥大化防止）
+LOG_CALL_COUNT=0  # ログ呼び出しカウンター
 
-# ログ関数
+# ログ関数（最適化済み）
 log() {
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     echo "[$timestamp] $1" >> "$LOG_FILE"
 
-    # ログファイルが大きすぎる場合は古い行を削除
-    if [ -f "$LOG_FILE" ]; then
-        local current_lines=$(wc -l < "$LOG_FILE" | tr -d '[:space:]')
-        if [ "$current_lines" -gt "$MAX_LOG_LINES" ]; then
+    # ログ回転を定期的にチェック only（毎回チェックしない）
+    LOG_CALL_COUNT=$((LOG_CALL_COUNT + 1))
+    if [ $LOG_CALL_COUNT -ge $LOG_ROTATION_INTERVAL ]; then
+        LOG_CALL_COUNT=0
+        local current_lines=$(wc -l < "$LOG_FILE" 2>/dev/null | tr -d '[:space:]')
+        if [ -n "$current_lines" ] && [ "$current_lines" -gt "$MAX_LOG_LINES" ]; then
             tail -n $MAX_LOG_LINES "$LOG_FILE" > "$LOG_FILE.tmp"
             mv "$LOG_FILE.tmp" "$LOG_FILE"
         fi
     fi
 }
+
+# 現在時刻をキャッシュ（スクリプト全体で再利用）
+NOW=$(date +%s)
 
 # Arduinoに閾値を送信（起動時のみ）
 if [ -n "$THRESHOLD_CM" ]; then
@@ -36,6 +46,18 @@ fi
 CONFIG_DIR=~/Documents/Arduino/promicro-presence
 # 状態ファイル（不在カウント、ディスプレイOFF状態、前回の距離）
 STATE_FILE="$CONFIG_DIR/.presence_display_state"
+
+# トグルヘルパー関数（コピペ削減）
+toggle_bool() {
+    local var_name="$1"
+    local current_value="${!var_name}"
+
+    if [ "$current_value" = true ]; then
+        eval "$var_name=false"
+    else
+        eval "$var_name=true"
+    fi
+}
 
 # 設定ファイルに保存（ディスプレイ制御設定のみ）
 save_config() {
@@ -68,21 +90,26 @@ load_state() {
     if [ -f "$STATE_FILE" ]; then
         source "$STATE_FILE"
     else
-        LAST_PRESENT_TIME=$(date +%s)  # 初期値は現在時刻
+        LAST_PRESENT_TIME=$NOW  # 初期値は現在時刻
         IS_DISPLAY_OFF=false
         PREV_USB_POWER=""  # 前回のUSB給電状態
         PREV_DEVICE_STATE=""  # 前回のデバイス状態
     fi
 }
 
-# 状態ファイルに保存
+# 状態ファイルに保存（変更時のみ）
 save_state() {
-    cat > "$STATE_FILE" <<EOF
+    local new_state=$(cat <<EOF
 LAST_PRESENT_TIME=${LAST_PRESENT_TIME}
 IS_DISPLAY_OFF=$IS_DISPLAY_OFF
-PREV_USB_POWER=$PREV_USB_POWER
-PREV_DEVICE_STATE=$PREV_DEVICE_STATE
+PREV_USB_POWER=${PREV_USB_POWER}
+PREV_DEVICE_STATE=${PREV_DEVICE_STATE}
 EOF
+)
+    # 前回の状態と異なる場合のみ書き込み
+    if [ ! -f "$STATE_FILE" ] || [ "$(<"$STATE_FILE")" != "$new_state" ]; then
+        echo "$new_state" > "$STATE_FILE"
+    fi
 }
 
 # 設定の更新関数
@@ -98,11 +125,7 @@ ACTION="$1"
 case "$ACTION" in
     --toggle-pause)
         load_config
-        if [ "$PAUSED" = true ]; then
-            PAUSED=false
-        else
-            PAUSED=true
-        fi
+        toggle_bool PAUSED
         save_config
         exit 0
         ;;
@@ -130,8 +153,8 @@ case "$ACTION" in
             DISPLAY_OFF_SECONDS=$display_off_seconds
             # ディスプレイ自動制御をON
             DISPLAY_CONTROL_ENABLED=true
-            # 状態初期化
-            LAST_PRESENT_TIME=$(date +%s)
+            # 状態初期化（キャッシュしたNOWを使用）
+            LAST_PRESENT_TIME=$NOW
             IS_DISPLAY_OFF=false
             save_state
         fi
@@ -140,11 +163,7 @@ case "$ACTION" in
         ;;
     --toggle-verbose-mode)
         load_config
-        if [ "$VERBOSE_MODE" = true ]; then
-            VERBOSE_MODE=false
-        else
-            VERBOSE_MODE=true
-        fi
+        toggle_bool VERBOSE_MODE
         save_config
         exit 0
         ;;
@@ -196,8 +215,8 @@ else
         save_state
     fi
 
-    # USB状態マーク（300以上でONと判定）
-    if [ "$USB_POWER_INT" -gt 300 ]; then
+    # USB状態マーク（USB_POWER_THRESHOLD以上でONと判定）
+    if [ "$USB_POWER_INT" -gt "$USB_POWER_THRESHOLD" ]; then
         USB_MARK="⚡"  # ON
         USB_STATUS="ON"
     else
@@ -211,26 +230,36 @@ else
     fi
     PREV_USB_POWER="$USB_STATUS"
 
-    # 基本情報をログ（常時記録）
-    local presence_status=""
+    # 在室判定を1回だけ実行
+    local is_present=false
     if [ "$DISTANCE_INT" -le "$THRESHOLD_CM" ]; then
-        presence_status="在室"
-    else
-        presence_status="不在"
+        is_present=true
     fi
-    # 経過秒数を計算（不在の場合のみ）
+
+    # 経過秒数を計算（常に計算して、在室/不在どちらでも使用可能にする）
     local elapsed_seconds=0
-    if [ "$presence_status" = "不在" ] && [ -n "$LAST_PRESENT_TIME" ]; then
-        elapsed_seconds=$(($(date +%s) - LAST_PRESENT_TIME))
+    if [ -n "$LAST_PRESENT_TIME" ]; then
+        elapsed_seconds=$((NOW - LAST_PRESENT_TIME))
     fi
-    log "SENSOR: 距離=${DISTANCE_INT}cm, USB=${USB_STATUS}(${USB_POWER_INT}), 在室=${presence_status}, Display=$([ "$IS_DISPLAY_OFF" = true ] && echo "OFF" || echo "ON"), Elapsed=${elapsed_seconds}s"
+
+    # ディスプレイ状態の文字列（ログ用に事前計算）
+    local display_status="OFF"
+    if [ "$IS_DISPLAY_OFF" = false ]; then
+        display_status="ON"
+    fi
+
+    # 基本情報をログ（常時記録）
+    local presence_status="不在"
+    if [ "$is_present" = true ]; then
+        presence_status="在室"
+    fi
+    log "SENSOR: 距離=${DISTANCE_INT}cm, USB=${USB_STATUS}(${USB_POWER_INT}), 在室=${presence_status}, Display=${display_status}, Elapsed=${elapsed_seconds}s"
 
     # ディスプレイ制御が有効な場合の処理
     if [ "$DISPLAY_OFF_SECONDS" -gt 0 ]; then
-        # 在室判定
-        if [ "$DISTANCE_INT" -le "$THRESHOLD_CM" ]; then
+        if [ "$is_present" = true ]; then
             # 在室：現在時刻を記録
-            LAST_PRESENT_TIME=$(date +%s)
+            LAST_PRESENT_TIME=$NOW
 
             # ディスプレイがOFF状態の場合
             if [ "$IS_DISPLAY_OFF" = true ]; then
@@ -238,19 +267,15 @@ else
                 display_on
             fi
             # USB給電がOFFの時はdisplay_on
-            if [ -n "$USB_POWER_INT" ] && [ "$USB_POWER_INT" -le 300 ]; then
+            if [ -n "$USB_POWER_INT" ] && [ "$USB_POWER_INT" -le "$USB_POWER_THRESHOLD" ]; then
                 log "USB_POWER_RECOVERY: USB給電OFFから復帰します (値: ${USB_POWER_INT})"
                 display_on
             fi
         else
-            # 不在：経過時間を計算
-            if [ -n "$LAST_PRESENT_TIME" ]; then
-                local elapsed_seconds=$(($(date +%s) - LAST_PRESENT_TIME))
-
-                if [ "$IS_DISPLAY_OFF" = false ] && [ "$elapsed_seconds" -ge "$DISPLAY_OFF_SECONDS" ]; then
-                    log "DISPLAY_OFF: 不在継続によりディスプレイをスリープさせます (経過: ${elapsed_seconds}s/${DISPLAY_OFF_SECONDS}s)"
-                    display_off
-                fi
+            # 不在：経過時間判定
+            if [ "$IS_DISPLAY_OFF" = false ] && [ "$elapsed_seconds" -ge "$DISPLAY_OFF_SECONDS" ]; then
+                log "DISPLAY_OFF: 不在継続によりディスプレイをスリープさせます (経過: ${elapsed_seconds}s/${DISPLAY_OFF_SECONDS}s)"
+                display_off
             fi
         fi
 
@@ -258,22 +283,13 @@ else
     fi
 
     # 在室判定（表示用）
-    if [ "$DISTANCE_INT" -le "$THRESHOLD_CM" ]; then
-        # 在室
-        if [ "$VERBOSE_MODE" = true ]; then
-            echo "🟢 ${DISTANCE_INT}cm ${USB_MARK}"
-        else
-            echo "🟢 ${DISTANCE_INT}cm ${USB_MARK}"
-        fi
+    if [ "$is_present" = true ]; then
+        # 在室（条件分岐削減 - 両ブランチ同じ出力）
+        echo "🟢 ${DISTANCE_INT}cm ${USB_MARK}"
         echo "---"
         echo "Status: 在室"
     else
-        # 不在：経過秒数を計算
-        local elapsed_seconds=0
-        if [ -n "$LAST_PRESENT_TIME" ]; then
-            elapsed_seconds=$(($(date +%s) - LAST_PRESENT_TIME))
-        fi
-
+        # 不在（計算済みのelapsed_secondsを使用）
         if [ "$VERBOSE_MODE" = true ]; then
             echo "🟠 ${DISTANCE_INT}cm ${USB_MARK} (${elapsed_seconds}s) | color=orange"
         else
@@ -316,12 +332,15 @@ else
         echo "--Display: OFF | color=red"
     else
         echo "--Display: ON"
-        # 経過秒数を表示
-        local elapsed_seconds=0
-        if [ -n "$LAST_PRESENT_TIME" ]; then
-            elapsed_seconds=$(($(date +%s) - LAST_PRESENT_TIME))
+        # 経過秒数を表示（センサーデータ取得済みの場合はその値、未取得の場合は計算）
+        if [ -n "${elapsed_seconds:-}" ]; then
+            echo "--経過時間: ${elapsed_seconds}s/${DISPLAY_OFF_SECONDS}s"
+        elif [ -n "${LAST_PRESENT_TIME:-}" ]; then
+            local menu_elapsed=$((NOW - LAST_PRESENT_TIME))
+            echo "--経過時間: ${menu_elapsed}s/${DISPLAY_OFF_SECONDS}s"
+        else
+            echo "--経過時間: 0s/${DISPLAY_OFF_SECONDS}s"
         fi
-        echo "--経過時間: ${elapsed_seconds}s/${DISPLAY_OFF_SECONDS}s"
     fi
 fi
 echo "---"
@@ -340,12 +359,21 @@ fi
 echo "--詳細表示を切り替え | bash=$0 param1=--toggle-verbose-mode terminal=false refresh=true"
 
 echo "---"
-if [ "$VERBOSE_MODE" = true ] && [ -n "$USB_POWER_INT" ]; then
-    # USB状態を表示
-    if [ "$USB_POWER_INT" -gt 300 ]; then
-        echo "⚡ USB Display: ON ($USB_POWER_INT) | color=green"
+if [ "$VERBOSE_MODE" = true ]; then
+    # USB状態を表示（定数USB_POWER_THRESHOLDを使用）
+    if [ -n "$USB_POWER_INT" ]; then
+        if [ "$USB_POWER_INT" -gt "$USB_POWER_THRESHOLD" ]; then
+            echo "⚡ USB給電: ON ($USB_POWER_INT) | color=green"
+        else
+            echo "💤 USB給電: OFF ($USB_POWER_INT) | color=gray"
+        fi
+    fi
+
+    # ディスプレイ状態を表示
+    if [ "${IS_DISPLAY_OFF:-false}" = true ]; then
+        echo "💻 ディスプレイ: OFF | color=red"
     else
-        echo "💤 USB Display: OFF ($USB_POWER_INT) | color=gray"
+        echo "💻 ディスプレイ: ON | color=green"
     fi
 fi
 
