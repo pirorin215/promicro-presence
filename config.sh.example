@@ -1,12 +1,18 @@
 #!/bin/bash
 # Pro Micro + HC-SR04 共通設定ファイル
 
-# デバイス設定（例: /dev/cu.usbmodem124301）
-DEVICE="/dev/cu.usbmodemXXXXXX"
+# デバイス設定
+DEVICE="/dev/cu.usbmodemHIDPC1"
 
 # 在室判定の閾値（cm）: この距離以下なら「在室」とみなす
-THRESHOLD_CM=40
+THRESHOLD_CM=150
 
 # 通知設定
-NOTIFY_URL="ntfy.sh/your-topic"
+NOTIFY_URL="ntfy.sh/claude-code-notice215"
 NOTIFY_MESSAGE="Claude Code応答"
+SOUND_FILE="/System/Library/Sounds/Submarine.aiff"
+
+# ディスプレイ自動制御設定
+DISPLAY_OFF_SECONDS=60
+VERBOSE_MODE=false
+PAUSED=true
