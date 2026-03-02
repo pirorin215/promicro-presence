@@ -55,6 +55,14 @@ void display_on() {
     keyboard_initialized = true;
   }
   sendRawHIDKey(WAKE_KEYCODE);
+
+  // LEDを3回素早く点滅させる
+  for (int i = 0; i < 3; i++) {
+    digitalWrite(LED_PIN, HIGH);
+    delay(100);  // 100ms点灯
+    digitalWrite(LED_PIN, LOW);
+    delay(100);  // 100ms消灯
+  }
 }
 
 float distance_old = 0;

@@ -72,6 +72,9 @@ display_on() {
     log "DISPLAY_ON: コマンド送信試行 (USB_POWER=$USB_POWER_INT, DISTANCE=$DISTANCE_INT)"
     if printf 'W\n' > "$DEVICE" 2>/dev/null; then
         log "DISPLAY_ON: コマンド送信成功"
+        # 不在カウンターをクリア
+        LAST_PRESENT_TIME=$NOW
+        log "DISPLAY_ON: 不在カウンターをクリアしました"
     else
         log "DISPLAY_ON: コマンド送信失敗 (errno=$?)"
     fi
@@ -227,6 +230,9 @@ else
     # USB給電状態の変化をログ
     if [ -n "${PREV_USB_POWER:-}" ] && [ "$PREV_USB_POWER" != "$USB_STATUS" ]; then
         log "USB_POWER: ${PREV_USB_POWER} -> ${USB_STATUS} (値: $USB_POWER_INT)"
+        # USB状態変化時に不在カウンターをクリア
+        LAST_PRESENT_TIME=$NOW
+        log "USB_POWER: 不在カウンターをクリアしました"
     fi
     PREV_USB_POWER="$USB_STATUS"
 
