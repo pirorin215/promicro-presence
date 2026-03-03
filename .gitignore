@@ -15,3 +15,4 @@ config.sh
 
 # コード検索インデックス
 .cocoindex_code/
+.claude/

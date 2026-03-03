@@ -56,12 +56,9 @@ void display_on() {
   }
   sendRawHIDKey(WAKE_KEYCODE);
 
-  // LEDを3回素早く点滅させる
   for (int i = 0; i < 3; i++) {
     digitalWrite(LED_PIN, HIGH);
-    delay(100);  // 100ms点灯
     digitalWrite(LED_PIN, LOW);
-    delay(100);  // 100ms消灯
   }
 }
 
@@ -81,7 +78,10 @@ void loop() {
   // 距離を計算 (cm) = 時間(μ秒) × 0.034 / 2
   float distance = duration * 0.034 / 2;
 
-  if(distance > 1000) {
+  // エラー値と異常値のフィルタリング
+  // duration=0 はタイムアウト（pulseInのデフォルト）、1cm未満はノイズとみなす
+  if(distance < 1.0 || distance > 1000) {
+    // 無効な値の場合は前回の有効値を保持
     distance = distance_old;
   } else {
     distance_old = distance;
