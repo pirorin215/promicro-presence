@@ -6,7 +6,9 @@
 # <swiftbar.hideLastUpdated>false</swiftbar.hideLastUpdated>
 # <swiftbar.image>system:name=person.fill</swiftbar.image>
 
-. ~/Documents/Arduino/promicro-presence/config.sh
+# プロジェクトのベースパス（共通設定）
+PROJECT_DIR=~/dev/Arduino/promicro-presence
+. "$PROJECT_DIR/config.sh"
 
 # 定数
 USB_POWER_THRESHOLD=300  # USB給電ON判定の閾値
@@ -42,8 +44,8 @@ if [ -n "$THRESHOLD_CM" ]; then
     printf 'T%d\n' "$THRESHOLD_CM" > "$DEVICE" 2>/dev/null
 fi
 
-# 設定ファイルディレクトリ
-CONFIG_DIR=~/Documents/Arduino/promicro-presence
+# 設定ファイルディレクトリ（プロジェクトパスを使用）
+CONFIG_DIR="$PROJECT_DIR"
 # 状態ファイル（不在カウント、ディスプレイOFF状態、前回の距離）
 STATE_FILE="$CONFIG_DIR/.presence_display_state"
 
@@ -115,6 +117,11 @@ EOF
     fi
 }
 
+# 設定を再読み込みする関数
+load_config() {
+    . "$PROJECT_DIR/config.sh"
+}
+
 # 設定の更新関数
 update_config() {
     load_config
@@ -137,7 +144,7 @@ case "$ACTION" in
         new_threshold="${ACTION#--set-threshold-}"
 
         # config.shを書き換え
-        sed -i '' "s/^THRESHOLD_CM=.*/THRESHOLD_CM=$new_threshold/" ~/Documents/Arduino/promicro-presence/config.sh
+        sed -i '' "s/^THRESHOLD_CM=.*/THRESHOLD_CM=$new_threshold/" "$PROJECT_DIR/config.sh"
 
         # Arduinoに送信
         printf 'T%d\n' "$new_threshold" > "$DEVICE" 2>/dev/null
@@ -237,25 +244,25 @@ else
     PREV_USB_POWER="$USB_STATUS"
 
     # 在室判定を1回だけ実行
-    local is_present=false
+    is_present=false
     if [ "$DISTANCE_INT" -le "$THRESHOLD_CM" ]; then
         is_present=true
     fi
 
     # 経過秒数を計算（常に計算して、在室/不在どちらでも使用可能にする）
-    local elapsed_seconds=0
+    elapsed_seconds=0
     if [ -n "$LAST_PRESENT_TIME" ]; then
         elapsed_seconds=$((NOW - LAST_PRESENT_TIME))
     fi
 
     # ディスプレイ状態の文字列（ログ用に事前計算）
-    local display_status="OFF"
+    display_status="OFF"
     if [ "$IS_DISPLAY_OFF" = false ]; then
         display_status="ON"
     fi
 
     # 基本情報をログ（常時記録）
-    local presence_status="不在"
+    presence_status="不在"
     if [ "$is_present" = true ]; then
         presence_status="在室"
     fi
@@ -342,7 +349,7 @@ else
         if [ -n "${elapsed_seconds:-}" ]; then
             echo "--経過時間: ${elapsed_seconds}s/${DISPLAY_OFF_SECONDS}s"
         elif [ -n "${LAST_PRESENT_TIME:-}" ]; then
-            local menu_elapsed=$((NOW - LAST_PRESENT_TIME))
+            menu_elapsed=$((NOW - LAST_PRESENT_TIME))
             echo "--経過時間: ${menu_elapsed}s/${DISPLAY_OFF_SECONDS}s"
         else
             echo "--経過時間: 0s/${DISPLAY_OFF_SECONDS}s"
