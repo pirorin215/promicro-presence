@@ -1,9 +1,17 @@
 #!/bin/bash
 # 在室判定して通知を送るスクリプト
 # 在室時は通知しない、不在時のみ通知を送る
+# 音は応答のたび（センサーから距離が読めたら）必ず鳴る
+# 通知の title/message は環境変数 NOTIFY_TITLE / NOTIFY_MSG で上書き可能
+# （未設定なら config.sh の値 / デフォルト）
+# omp の session_stop 拡張、および Claude Code の hooks.Stop/Notification から呼ばれる
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/config.sh"
+
+# 通知内容（呼び出し元が環境変数で上書き可能）
+TITLE="${NOTIFY_TITLE:-💬 エージェント}"
+MESSAGE="${NOTIFY_MSG:-$NOTIFY_MESSAGE}"
 
 # ntfy.shに通知を送る関数
 send_notification() {
@@ -12,56 +20,9 @@ send_notification() {
     local tags="${3:-}"      # オプション: 絵文字タグ
     local priority="${4:-3}" # オプション: 優先度 (1-5, デフォルト3)
 
-    local curl_cmd="curl -s"
-    curl_cmd+=" -H 'X-Title: $title'"
-
-    if [ -n "$tags" ]; then
-        curl_cmd+=" -H 'X-Tags: $tags'"
-    fi
-
-    curl_cmd+=" -H 'X-Priority: $priority'"
-    curl_cmd+=" -d \"$message\" \"$NOTIFY_URL\""
-
-    eval "$curl_cmd"
-}
-
-# Claude Codeの最新の状態を判定
-detect_claude_state() {
-    local debug_dir="$HOME/.claude/debug"
-    local latest_log_file=$(ls -t "$debug_dir" 2>/dev/null | grep -v '^latest$' | head -1)
-
-    if [ -z "$latest_log_file" ]; then
-        echo "unknown"
-        return
-    fi
-
-    local latest_log="$debug_dir/$latest_log_file"
-
-    if [ ! -f "$latest_log" ]; then
-        echo "unknown"
-        return
-    fi
-
-    sleep 3
-
-    # 最新の30行から、最新（最後）のイベント行を抽出
-    local last_line=$(tail -30 "$latest_log" | grep -E "permission_prompt|idle_prompt|AskUserQuestion|completed successfully|ERROR" | tail -1)
-
-    # 判定：最新のイベントに基づいて
-    if echo "$last_line" | grep -q "permission_prompt"; then
-        echo "permission"
-    elif echo "$last_line" | grep -q "idle_prompt"; then
-        echo "idle"
-    elif echo "$last_line" | grep -q "Getting matching hook commands for PermissionRequest with query: AskUserQuestion"; then
-        echo "question"
-    elif echo "$last_line" | grep -q "completed successfully"; then
-        echo "completed"
-    elif echo "$last_line" | grep -q "\[ERROR\]"; then
-        # 大文字の[ERROR]のみを真のエラーとみなす
-        echo "error"
-    else
-        echo "working"
-    fi
+    local -a hdrs=(-H "X-Title: $title" -H "X-Priority: $priority")
+    [ -n "$tags" ] && hdrs+=(-H "X-Tags: $tags")
+    curl -s "${hdrs[@]}" -H "Content-Type: text/plain" --data-binary "$message" "$NOTIFY_URL" >/dev/null
 }
 
 # 距離を取得
@@ -70,55 +31,22 @@ DISTANCE=$(head -n 1 "$DEVICE" 2>/dev/null)
 # 距離が取得できなかった場合は通知する（安全側）
 if [ -z "$DISTANCE" ]; then
     afplay "$SOUND_FILE" &
-    STATE=$(detect_claude_state)
-    case "$STATE" in
-        "permission")
-            send_notification "⏸️ 許可待ち" "コマンドの実行許可を待っています" "thinking" 4
-            ;;
-        "question")
-            send_notification "❓ 質問" "Claude Codeが質問しています" "question_mark" 3
-            ;;
-        "error")
-            send_notification "❌ エラー" "エラーが発生しました" "x" 5
-            ;;
-        *)
-            send_notification "💬 Claude Code" "$NOTIFY_MESSAGE" "speech_balloon" 3
-            ;;
-    esac
+    send_notification "$TITLE" "$MESSAGE" "speech_balloon" 3
     exit 0
 fi
 
 # 整数に丸めて比較
 DISTANCE_INT=${DISTANCE%.*}
 
+# 音は応答のたびに鳴らす（在室/不在問わず）
 afplay "$SOUND_FILE" &
 
 # 在室判定（閾値以下なら在室とみなす）
 if [ "$DISTANCE_INT" -le "$THRESHOLD_CM" ]; then
-    # 在室: 通知しない
+    # 在室: 通知しない（音は鳴った）
     exit 0
 else
-    # 不在: 音を鳴らして状態に応じた通知を送る
-    STATE=$(detect_claude_state)
-    case "$STATE" in
-        "permission")
-            send_notification "⏸️ 許可待ち" "コマンドの実行許可を待っています" "thinking" 4
-            ;;
-        "question")
-            send_notification "❓ 質問" "Claude Codeが質問しています" "question_mark" 3
-            ;;
-        "error")
-            send_notification "❌ エラー" "エラーが発生しました" "x" 5
-            ;;
-        "completed")
-            send_notification "✅ 完了" "タスクが完了しました" "white_check_mark" 2
-            ;;
-        "idle")
-            send_notification "😴 待機中" "Claude Codeが入力待ちです" "zzz" 2
-            ;;
-        "working"|"unknown"|*)
-            send_notification "💬 Claude Code" "$NOTIFY_MESSAGE" "speech_balloon" 3
-            ;;
-    esac
+    # 不在: 通知を送る
+    send_notification "$TITLE" "$MESSAGE" "speech_balloon" 3
     exit 0
 fi
