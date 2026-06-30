@@ -10,8 +10,13 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/config.sh"
 
 # 通知内容（呼び出し元が環境変数で上書き可能）
+# 優先順位: NOTIFY_MSG_FILE(ファイル本文) > NOTIFY_MSG > configのNOTIFY_MESSAGE
 TITLE="${NOTIFY_TITLE:-💬 エージェント}"
-MESSAGE="${NOTIFY_MSG:-$NOTIFY_MESSAGE}"
+if [ -n "$NOTIFY_MSG_FILE" ] && [ -f "$NOTIFY_MSG_FILE" ]; then
+    MESSAGE="$(cat "$NOTIFY_MSG_FILE")"
+else
+    MESSAGE="${NOTIFY_MSG:-$NOTIFY_MESSAGE}"
+fi
 
 # ntfy.shに通知を送る関数
 send_notification() {
