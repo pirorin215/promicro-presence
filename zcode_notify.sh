@@ -15,8 +15,16 @@
 #   よって stop 行を末尾から探す = 直近のユーザー向け応答。
 #
 # 並列安全性: セッションID単位でファイルが分かれるため、複数 ZCode 同時実行でも競合しない。
+#
+# 注意: ZCode の hook 実行環境は最小 PATH で LANG/LC_ALL が未設定の場合がある。
+# 日本語要約の文字化け（sed が UTF-8 を扱えない）を防ぐため、明示的に設定する。
 
 set -uo pipefail
+# ZCode hook 実行環境は最小 PATH の場合があり、jq/tail/sed 等が見つからないと
+# 粛々と失敗するため、標準パスを明示的に確保。
+export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:${PATH:-}"
+export LANG="${LANG:-ja_JP.UTF-8}"
+export LC_ALL="${LC_ALL:-ja_JP.UTF-8}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -36,15 +44,14 @@ if [ -n "$SID" ] && [ -f "$ROLLOUT" ]; then
         | jq -r '.response.text // empty' 2>/dev/null || true)"
 
     if [ -n "$TEXT" ]; then
-        # 要約タグ内を抽出。. は改行にマッチしないため awk で安全に抜き出す。
-        SUMMARY="$(printf '%s' "$TEXT" \
-            | awk 'match($0, /<!--znotify>/) {
-                s = substr($0, RSTART + length("<!--znotify>"))
-                if (match(s, /<\/znotify-->/)) {
-                    print substr(s, 1, RSTART - 1)
-                }
-            }' \
-            | head -1)"
+        # 要約タグ内を抽出。LLM が終了タグを </znotify--> と正しく書くとは限らない
+        # （--> だけで閉じる、</znotify> にする、等の揺れがある）ため、開始タグ以降を
+        # 取って最初の <-- / --> までを抜き出す方式で堅牢化。改行もまたぐよう tr で正規化。
+        # 参考: 実運用で <!--znotify>要約--> （終了タグ省略形）が出た実績あり。
+        SUMMARY="$(printf '%s' "$TEXT" | tr '\n' ' ' \
+            | sed -nE 's/.*<!--znotify>([^<]*).*/\1/p' \
+            | head -1 \
+            | sed -E 's/[[:space:]]*$//; s/-->[[:space:]]*$//; s/[[:space:]]+$//')"
         [ -n "$SUMMARY" ] && MSG="$SUMMARY"
     fi
 fi
