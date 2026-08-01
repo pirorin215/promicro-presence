@@ -17,3 +17,4 @@ config.sh
 .cocoindex_code/
 .claude/
 .zcode/
+*.bak*

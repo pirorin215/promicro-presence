@@ -1,6 +1,6 @@
 #!/bin/bash
 # ZCode Stop hook: 当該セッションのロールアウト jsonl から直近のユーザー向け応答を取り出し、
-# 応答末尾に埋め込まれた要約タグ <!--znotify>要約--> を抽出して notify_if_absent.sh に渡す。
+# 応答末尾に埋め込まれた要約タグ <!--znotify>...</znotify--> を抽出して notify_if_absent.sh に渡す。
 # タグが無ければ固定文「ZCode応答」にフォールバック（LLM がタグ出力を忘れても通知は止まらない）。
 #
 # 呼出元: ~/.zcode/cli/config.json の hooks.events.Stop
@@ -44,19 +44,14 @@ if [ -n "$SID" ] && [ -f "$ROLLOUT" ]; then
         | jq -r '.response.text // empty' 2>/dev/null || true)"
 
     if [ -n "$TEXT" ]; then
-        # 末尾の <!--znotify>要約--> のみを抽出。
-        # 改行を tr で正規化した上で、文字列末尾にあることを $ アンカーで要求する。
-        # これにより、応答本文中に例示として <!--znotify>...--> が登場しても誤抽出しない。
-        # （AGENTS.md が「応答の末尾に置く」と指示するのと仕組みが一致）
-        #
-        # LLM の終了タグ揺れ（-->, >, 省略）に対応するため、[^<]* で要約を取り、
-        # 後処理で末尾の --> / > / - を順に除去する。
-        # 空タグ <!--znotify--> やタグ無しの場合は空となり、フォールバック「ZCode応答」に落ちる。
+        # 要約タグ内を抽出。LLM が終了タグを </znotify--> と正しく書くとは限らない
+        # （--> だけで閉じる、</znotify> にする、等の揺れがある）ため、開始タグ以降を
+        # 取って最初の <-- / --> までを抜き出す方式で堅牢化。改行もまたぐよう tr で正規化。
+        # 参考: 実運用で <!--znotify>要約--> （終了タグ省略形）が出た実績あり。
         SUMMARY="$(printf '%s' "$TEXT" | tr '\n' ' ' \
-            | sed -E 's/[[:space:]]+$//' \
-            | sed -nE 's/.*<!--znotify>([^<]*)[[:space:]]*$/\1/p' \
+            | sed -nE 's/.*<!--znotify>([^<]*).*/\1/p' \
             | head -1 \
-            | sed -E 's/[[:space:]]*$//; s/-->[[:space:]]*$//; s/>[[:space:]]*$//; s/-[[:space:]]*$//; s/[[:space:]]*$//')"
+            | sed -E 's/[[:space:]]*$//; s/-->[[:space:]]*$//; s/[[:space:]]+$//')"
         [ -n "$SUMMARY" ] && MSG="$SUMMARY"
     fi
 fi
