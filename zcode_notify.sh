@@ -44,15 +44,24 @@ if [ -n "$SID" ] && [ -f "$ROLLOUT" ]; then
         | jq -r '.response.text // empty' 2>/dev/null || true)"
 
     if [ -n "$TEXT" ]; then
-        # 要約タグ内を抽出。LLM が終了タグを </znotify--> と正しく書くとは限らない
-        # （--> だけで閉じる、</znotify> にする、等の揺れがある）ため、開始タグ以降を
-        # 取って最初の <-- / --> までを抜き出す方式で堅牢化。改行もまたぐよう tr で正規化。
-        # 参考: 実運用で <!--znotify>要約--> （終了タグ省略形）が出た実績あり。
-        SUMMARY="$(printf '%s' "$TEXT" | tr '\n' ' ' \
-            | sed -nE 's/.*<!--znotify>([^<]*).*/\1/p' \
-            | head -1 \
-            | sed -E 's/[[:space:]]*$//; s/-->[[:space:]]*$//; s/[[:space:]]+$//')"
-        [ -n "$SUMMARY" ] && MSG="$SUMMARY"
+        # 要約タグ内を抽出。LLM がタグを正確に書くとは限らないため、以下の揺れ全てに対応:
+        #   正:  <!--znotify>要約</znotify-->
+        #   揺1: <!--znotify>要約-->          （終了タグ省略）
+        #   揺2: <!--znotify-->要約-->        （開始タグが自己閉じ ← GLM-5.2 で多発）
+        #   揺3: <!--znotify>要約</znotify>   （終了タグの -- 省略）
+        # 方針: 開始タグ（<!--znotify> or <!--znotify-->）より後ろを取り、
+        #   末尾の終了タグ（</znotify--> / </znotify> / -->）を削除して本文を得る。
+        #   本文は1文・60字以内で --> を含まないため、貪欲一致で安全。
+        # 注意: macOS BSD sed は ERE で `--?`（連続ハイフンの省略）を正しく解釈しない。
+        #   代わりに `-{0,2}` を使う（BSD sed は interval 式をサポート）。
+        #   タグ自体が無い場合は sed が本文全体を残してしまうため、grep で事前チェックし
+        #   タグ無し時は SUMMARY を空にして「ZCode応答」フォールバックに渡す。
+        if printf '%s' "$TEXT" | grep -q '<!--znotify'; then
+            SUMMARY="$(printf '%s' "$TEXT" | tr '\n' ' ' \
+                | sed -E 's/.*<!--znotify-{0,2}>//' \
+                | sed -E 's/[[:space:]]*<\/?znotify-{0,2}>$//; s/[[:space:]]*-->$//; s/[[:space:]]+$//')"
+            [ -n "$SUMMARY" ] && MSG="$SUMMARY"
+        fi
     fi
 fi
 
