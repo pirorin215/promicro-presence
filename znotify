@@ -1,0 +1,151 @@
+#!/bin/bash
+# znotify — ZCode 応答の znotify 要約タグを調査するデバッグCLI
+#
+# ~/.zcode/cli/rollout/ 配下の model-io jsonl から stop 応答を取り出し、
+# 応答末尾に埋め込まれた <!--znotify>...</znotify--> タグを表示する。
+# 抽出ロジックは zcode_notify.sh（Stop hook）と共通（znotify_lib.sh を source）。
+#
+# 使い方:
+#   znotify                 # 最新セッションの最新応答の要約を表示
+#   znotify --raw           # 抽出ではなくタグ含む末尾テキストをそのまま表示
+#   znotify --all           # そのセッションの全 stop 応答を表示
+#   znotify --session <id>  # セッション指定（sess_xxx）
+#   znotify -l, --list      # rollout のセッション一覧（新しい順）
+#   znotify -h, --help      # ヘルプ
+
+set -uo pipefail
+# シンボリックリンク経由（~/.zcode/bin/znotify → 実体）で呼ばれる場合があるため、
+# 実体のディレクトリを辿って znotify_lib.sh を source する。
+# macOS の readlink は -f 非対応のため、手動で再帰解決。
+_SELF="$0"
+while [ -L "$_SELF" ]; do
+    _DIR=$(cd "$(dirname "$_SELF")" && pwd)
+    _SELF=$(readlink "$_SELF")
+    case "$_SELF" in
+        /*) : ;;
+        *)  _SELF="$_DIR/$_SELF" ;;
+    esac
+done
+SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
+
+# 共通ライブラリ（PATH/LANG 設定 + extract_znotify / rollout_path / latest_rollout_path）
+# shellcheck source=znotify_lib.sh
+. "$SCRIPT_DIR/znotify_lib.sh"
+
+ROLLOUT_DIR="$HOME/.zcode/cli/rollout"
+
+# --- 引数解析 ---
+MODE="latest"      # latest | raw | all | list
+SESSION_ID=""
+
+usage() {
+    sed -n '3,14p' "$0" | sed 's/^# \{0,1\}//'
+    exit "${1:-0}"
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --raw)        MODE="raw"; shift ;;
+        --all)        MODE="all"; shift ;;
+        -l|--list)    MODE="list"; shift ;;
+        --session)    SESSION_ID="${2:-}"; [ -z "$SESSION_ID" ] && { echo "--session にはセッションIDが必要" >&2; exit 1; }; shift 2 ;;
+        -h|--help)    usage 0 ;;
+        --session=*)  SESSION_ID="${1#*=}"; shift ;;
+        *)            echo "不明な引数: $1" >&2; usage 1 ;;
+    esac
+done
+
+# --- モード別処理 ---
+
+# list: rollout のセッション一覧（新しい順・mtime付き）
+if [ "$MODE" = "list" ]; then
+    found=0
+    while IFS= read -r f; do
+        [ -z "$f" ] && continue
+        found=1
+        mtime=$(stat -f '%Sm' -t '%Y-%m-%d %H:%M' "$f")
+        sid=$(basename "$f" | sed 's/^model-io-//; s/\.jsonl$//')
+        printf '%s  %s\n' "$mtime" "$sid"
+    done < <(ls -t "$ROLLOUT_DIR"/model-io-*.jsonl 2>/dev/null)
+    [ "$found" -eq 0 ] && echo "rollout ファイルが見つかりません: $ROLLOUT_DIR" >&2 && exit 1
+    exit 0
+fi
+
+# 対象セッションの rollout パスを決定
+if [ -n "$SESSION_ID" ]; then
+    ROLLOUT=$(rollout_path "$SESSION_ID")
+    if [ -z "$ROLLOUT" ]; then
+        echo "セッションの rollout が見つかりません: $SESSION_ID" >&2
+        echo "存在するセッション:" >&2
+        ls -t "$ROLLOUT_DIR"/model-io-*.jsonl 2>/dev/null | head -5 >&2
+        exit 1
+    fi
+else
+    ROLLOUT=$(latest_rollout_path)
+    if [ -z "$ROLLOUT" ]; then
+        echo "rollout ファイルが見つかりません: $ROLLOUT_DIR" >&2
+        exit 1
+    fi
+    SESSION_ID=$(basename "$ROLLOUT" | sed 's/^model-io-//; s/\.jsonl$//')
+fi
+
+# jsonl から stop 行の response.text を取り出す関数
+# $1 = rollout パス, $2 = "latest"（末尾1件）or "all"（全件）
+get_stop_texts() {
+    local path="$1" scope="$2"
+    if [ "$scope" = "latest" ]; then
+        # 末尾から走査し、最新の stop 行の response.text を1件
+        tail -r "$path" 2>/dev/null \
+            | grep -m1 '"finishReason":"stop"' \
+            | jq -r '.response.text // empty' 2>/dev/null
+    else
+        # 全 stop 行の response.text を順に（jsonl は時系列順）
+        jq -r 'select(.response.finishReason=="stop") | .response.text // empty' "$path" 2>/dev/null
+    fi
+}
+
+# --- モード別出力 ---
+
+case "$MODE" in
+    latest)
+        TEXT=$(get_stop_texts "$ROLLOUT" latest)
+        if [ -z "$TEXT" ]; then
+            echo "stop 応答が見つかりません: $SESSION_ID" >&2
+            exit 1
+        fi
+        SUMMARY=$(printf '%s' "$TEXT" | extract_znotify)
+        if [ -n "$SUMMARY" ]; then
+            printf '%s\n' "$SUMMARY"
+        else
+            echo "（タグなし・フォールバック対象）" >&2
+            printf '%s\n' "$TEXT" | tail -c 120
+            exit 1
+        fi
+        ;;
+    raw)
+        # 抽出ではなく、タグを含む response.text 末尾をそのまま表示
+        TEXT=$(get_stop_texts "$ROLLOUT" latest)
+        if [ -z "$TEXT" ]; then
+            echo "stop 応答が見つかりません: $SESSION_ID" >&2
+            exit 1
+        fi
+        printf '%s\n' "$TEXT" | tail -c 300
+        ;;
+    all)
+        # そのセッションの全 stop 応答を順に、番号付きで表示
+        n=0
+        while IFS= read -r text; do
+            [ -z "$text" ] && continue
+            n=$((n + 1))
+            SUMMARY=$(printf '%s' "$text" | extract_znotify)
+            if [ -n "$SUMMARY" ]; then
+                printf '[%d] %s\n' "$n" "$SUMMARY"
+            else
+                # タグなしなら末尾を表示（LC_ALL=C で不正バイト列の tr エラーを回避）
+                tail_part=$(printf '%s' "$text" | tail -c 40 | LC_ALL=C tr '\n' ' ')
+                printf '[%d] (タグなし) ...%s\n' "$n" "$tail_part"
+            fi
+        done < <(get_stop_texts "$ROLLOUT" all)
+        [ "$n" -eq 0 ] && echo "stop 応答が見つかりません: $SESSION_ID" >&2 && exit 1
+        ;;
+esac

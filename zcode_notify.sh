@@ -16,17 +16,15 @@
 #
 # 並列安全性: セッションID単位でファイルが分かれるため、複数 ZCode 同時実行でも競合しない。
 #
-# 注意: ZCode の hook 実行環境は最小 PATH で LANG/LC_ALL が未設定の場合がある。
-# 日本語要約の文字化け（sed が UTF-8 を扱えない）を防ぐため、明示的に設定する。
+# 注意: PATH/LANG/LC_ALL 設定と要約タグ抽出ロジックは znotify_lib.sh に共通化。
+# znotify デバッグCLI と同じ関数を使うため、修正が片方に偏らない。
 
 set -uo pipefail
-# ZCode hook 実行環境は最小 PATH の場合があり、jq/tail/sed 等が見つからないと
-# 粛々と失敗するため、標準パスを明示的に確保。
-export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:${PATH:-}"
-export LANG="${LANG:-ja_JP.UTF-8}"
-export LC_ALL="${LC_ALL:-ja_JP.UTF-8}"
-
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# 共通ライブラリ（PATH/LANG 設定 + extract_znotify 関数）
+# shellcheck source=znotify_lib.sh
+. "$SCRIPT_DIR/znotify_lib.sh"
 
 # ZCode が注入するセッションID（ファイル名の sess_<id> と一致）
 SID="${CLAUDE_SESSION_ID:-${ZCODE_SESSION_ID:-}}"
@@ -44,24 +42,11 @@ if [ -n "$SID" ] && [ -f "$ROLLOUT" ]; then
         | jq -r '.response.text // empty' 2>/dev/null || true)"
 
     if [ -n "$TEXT" ]; then
-        # 要約タグ内を抽出。LLM がタグを正確に書くとは限らないため、以下の揺れ全てに対応:
-        #   正:  <!--znotify>要約</znotify-->
-        #   揺1: <!--znotify>要約-->          （終了タグ省略）
-        #   揺2: <!--znotify-->要約-->        （開始タグが自己閉じ ← GLM-5.2 で多発）
-        #   揺3: <!--znotify>要約</znotify>   （終了タグの -- 省略）
-        # 方針: 開始タグ（<!--znotify> or <!--znotify-->）より後ろを取り、
-        #   末尾の終了タグ（</znotify--> / </znotify> / -->）を削除して本文を得る。
-        #   本文は1文・60字以内で --> を含まないため、貪欲一致で安全。
-        # 注意: macOS BSD sed は ERE で `--?`（連続ハイフンの省略）を正しく解釈しない。
-        #   代わりに `-{0,2}` を使う（BSD sed は interval 式をサポート）。
-        #   タグ自体が無い場合は sed が本文全体を残してしまうため、grep で事前チェックし
-        #   タグ無し時は SUMMARY を空にして「ZCode応答」フォールバックに渡す。
-        if printf '%s' "$TEXT" | grep -q '<!--znotify'; then
-            SUMMARY="$(printf '%s' "$TEXT" | tr '\n' ' ' \
-                | sed -E 's/.*<!--znotify-{0,2}>//' \
-                | sed -E 's/[[:space:]]*<\/?znotify-{0,2}>$//; s/[[:space:]]*-->$//; s/[[:space:]]+$//')"
-            [ -n "$SUMMARY" ] && MSG="$SUMMARY"
-        fi
+        # 共通ライブラリの extract_znotify で要約タグを抽出。
+        # タグ揺れ（自己閉じ形式など）の吸収は znotify_lib.sh に一元化。
+        # 抽出失敗時は空文字が返り、MSG はデフォルト「ZCode応答」のまま。
+        SUMMARY="$(printf '%s' "$TEXT" | extract_znotify)"
+        [ -n "$SUMMARY" ] && MSG="$SUMMARY"
     fi
 fi
 
