@@ -23,7 +23,7 @@ send_notification() {
     local title="$1"
     local message="$2"
     local tags="${3:-}"      # オプション: 絵文字タグ
-    local priority="${4:-3}" # オプション: 優先度 (1-5, デフォルト3)
+    local priority="${4:-4}" # オプション: 優先度 (1-5, デフォルト4)
 
     local -a hdrs=(-H "X-Title: $title" -H "X-Priority: $priority")
     [ -n "$tags" ] && hdrs+=(-H "X-Tags: $tags")
@@ -36,7 +36,7 @@ DISTANCE=$(head -n 1 "$DEVICE" 2>/dev/null)
 # 距離が取得できなかった場合は通知する（安全側）
 if [ -z "$DISTANCE" ]; then
     afplay "$SOUND_FILE" &
-    send_notification "$TITLE" "$MESSAGE" "speech_balloon" 3
+    send_notification "$TITLE" "$MESSAGE" "speech_balloon" 4
     exit 0
 fi
 
@@ -52,6 +52,6 @@ if [ "$DISTANCE_INT" -le "$THRESHOLD_CM" ]; then
     exit 0
 else
     # 不在: 通知を送る
-    send_notification "$TITLE" "$MESSAGE" "speech_balloon" 3
+    send_notification "$TITLE" "$MESSAGE" "speech_balloon" 4
     exit 0
 fi
