@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/opt/homebrew/bin/bash
 # <swiftbar.runInTerminal>false</swiftbar.runInTerminal>
 # <swiftbar.debugLog>false</swiftbar.debugLog>
 # <swiftbar.hideAbout>true</swiftbar.hideAbout>

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/opt/homebrew/bin/bash
 # 継続監視モード
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

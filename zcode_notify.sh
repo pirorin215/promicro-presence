@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/opt/homebrew/bin/bash
 # ZCode Stop hook: 当該セッションのロールアウト jsonl から直近のユーザー向け応答を取り出し、
 # 応答末尾に埋め込まれた要約タグ <!--znotify>...</znotify--> を抽出して notify_if_absent.sh に渡す。
 # タグが無ければ固定文「ZCode応答」にフォールバック（LLM がタグ出力を忘れても通知は止まらない）。

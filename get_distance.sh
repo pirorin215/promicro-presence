@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/opt/homebrew/bin/bash
 # Pro Micro + HC-SR04 から距離を取得するシェルスクリプト
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

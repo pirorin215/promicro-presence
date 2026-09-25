@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/opt/homebrew/bin/bash
 # znotify — ZCode 応答の znotify 要約タグを調査するデバッグCLI
 #
 # ~/.zcode/cli/rollout/ 配下の model-io jsonl から stop 応答を取り出し、

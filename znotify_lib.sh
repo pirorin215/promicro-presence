@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/opt/homebrew/bin/bash
 # znotify_lib.sh — znotify 要約タグ抽出の共通ライブラリ
 #
 # zcode_notify.sh（Stop hook・通知用）と znotify（デバッグCLI）の両方から
