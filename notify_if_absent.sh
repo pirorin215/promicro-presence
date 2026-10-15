@@ -18,7 +18,7 @@ else
     MESSAGE="${NOTIFY_MSG:-$NOTIFY_MESSAGE}"
 fi
 
-# ntfy.shに通知を送る関数
+# セルフホスト ntfy (:25880) に通知を送る関数
 send_notification() {
     local title="$1"
     local message="$2"
