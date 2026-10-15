@@ -8,7 +8,7 @@ DEVICE="/dev/cu.usbmodemHIDPC1"
 THRESHOLD_CM=150
 
 # 通知設定
-NOTIFY_URL="ntfy.sh/claude-code-notice215"
+NOTIFY_URL="http://192.168.0.221:25880/claude-code-notice215"
 NOTIFY_MESSAGE="Claude Code応答"
 SOUND_FILE="/System/Library/Sounds/Submarine.aiff"
 

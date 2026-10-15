@@ -80,25 +80,19 @@ vim config.sh  # DEVICEなどを編集
 1. Claude CodeがHookを発火
 2. `notify_if_absent.sh` がHC-SR04で距離を計測
 3. 在室（閾値以下）→ 音のみ鳴らす（通知は送らない）
-4. 不在（閾値超え）→ 音を鳴らして、ntfy.sh経由でスマホに通知送信
+4. 不在（閾値超え）→ 音を鳴らして、self-hosted ntfy（ryzen7 :25880）経由でスマホに通知送信
 
-## ntfy.sh の設定
+## ntfy の設定（self-hosted）
 
-**ntfy.sh** は無料のプッシュ通知サービスです。登録なしで誰でも使用できます。
+通知は ryzen7 のセルフホスト ntfy（`http://192.168.0.221:25880/<topic>`・LAN / WireGuard 内からのみ到達可）宛て。旧 ntfy.sh パブリックは 2026-10-16 に引退済みで**新規発信は禁止**。
 
-### トピックの作成
+### 送信先の指定
 
-特別な登録は不要。`config.sh` でトピック名を指定するだけです：
+`config.sh` で送信先 URL を指定するだけです：
 
 ```bash
 # config.sh
-NOTIFY_URL="ntfy.sh/your-unique-topic-name"
-```
-
-**セキュリティ推奨**: 他人が推測しにくいランダムなトピック名を使用してください：
-
-```bash
-NOTIFY_URL="ntfy.sh/$(uuidgen | tr -d '-')"
+NOTIFY_URL="http://192.168.0.221:25880/claude-code-notice215"
 ```
 
 ### スマホで通知を受け取る
@@ -110,15 +104,15 @@ NOTIFY_URL="ntfy.sh/$(uuidgen | tr -d '-')"
 2. **トピックを購読**:
    - アプリを開く
    - 「Subscribe」タブをタップ
-   - トピック名を入力（例: `your-unique-topic-name`）
+   - サーバに self-hosted の URL（既定サーバ設定済みならトピック名だけ）を入力
    - Subscribeをタップ
 
 3. **通知テスト**:
    ```bash
-   curl -d "テスト通知" "ntfy.sh/your-unique-topic-name"
+   curl -d "テスト通知" "http://192.168.0.221:25880/claude-code-notice215"
    ```
 
-公式サイト: https://ntfy.sh/
+屋外での受信は WireGuard VPN 接続が前提。ntfy 自体の説明: https://ntfy.sh/docs/
 
 ## ファイル構成
 
@@ -133,6 +127,6 @@ NOTIFY_URL="ntfy.sh/$(uuidgen | tr -d '-')"
 
 - `DEVICE` - Pro Microのデバイスパス（例: `/dev/cu.usbmodemHIDPC1`）
 - `THRESHOLD_CM` - 在室判定の閾値（cm）、この距離以下なら在室とみなす
-- `NOTIFY_URL` - ntfy.shのトピックURL
+- `NOTIFY_URL` - 通知送信先 URL（self-hosted ntfy のトピック URL）
 - `NOTIFY_MESSAGE` - 通知メッセージ
 - `SOUND_FILE` - 在室時に鳴らす音声ファイルのパス
