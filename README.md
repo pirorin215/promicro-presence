@@ -1,5 +1,7 @@
 # Pro Micro + HC-SR04 在室検知システム
 
+> **2026-10-18: mac mini での運用終了**（HIDPC基板は acemagic へ移設・本 README は mac 運用当時の記述）。
+
 Pro MicroとHC-SR04超音波センサーを使った在室検知システム。Claude Codeの通知を在室時に制御するために作成。
 
 ## 構成
