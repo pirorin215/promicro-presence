@@ -1,7 +1,6 @@
 # promicro-presence — エージェントへの指示
 
-> **2026-10-18: mac mini での運用終了。** HIDPC 基板は acemagic へ物理移設
-> （by-id `usb-Arduino_LLC_Arduino_Leonardo_HIDPC-if00`・活用/廃止は検討中）。
+> **2026-10-18: mac mini での運用終了。** HIDPC 基板は acemagic へ物理移設済み（現在 USB 未接続）。
 > mac 側 yobar `presence.3s.sh` は削除済み。`config.sh`・`notify_if_absent.sh`/
 > `zcode_notify.sh`（通知hook・距離読みは常に失敗中）は残置。以下は mac 運用当時の記述。
 
